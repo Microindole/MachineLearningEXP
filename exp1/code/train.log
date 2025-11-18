@@ -1,0 +1,24 @@
+正在读取数据: ../data/train.csv ...
+开始训练 (样本数: 4521)...
+  Iter 0: RMSE = 27.1817
+  Iter 50000: RMSE = 7.3937
+  Iter 100000: RMSE = 5.9160
+  Iter 150000: RMSE = 5.7194
+  Iter 200000: RMSE = 5.6927
+  Iter 250000: RMSE = 5.6883
+
+=== 验证集 RMSE: 5.6999 ===
+
+正在使用全量数据重新训练最终模型...
+开始训练 (样本数: 5652)...
+  Iter 0: RMSE = 27.0710
+  Iter 50000: RMSE = 7.3536
+  Iter 100000: RMSE = 5.8863
+  Iter 150000: RMSE = 5.6925
+  Iter 200000: RMSE = 5.6666
+  Iter 250000: RMSE = 5.6626
+正在保存模型至 ../model ...
+模型保存完成！
+
+正在生成最终 predict.csv ...
+预测完成，结果已保存至 ../data/predict.csv

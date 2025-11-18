@@ -1,0 +1,8 @@
+
+*.doc
+
+*.npy
+
+data/train.csv
+
+data/test.csv
