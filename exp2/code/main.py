@@ -5,23 +5,25 @@ import seaborn as sns
 import os
 import pickle
 from sklearn.metrics import confusion_matrix
+from sklearn.decomposition import PCA
 
-# 确保模型保存目录存在
 if not os.path.exists('../model'):
     os.makedirs('../model')
 
 
-# ================= 1. 数据预处理 =================
+# 数据预处理
 def preprocess_data(train_path, test_path):
-    print("正在加载和预处理数据...")
+    print("正在加载和预处理数据 (Optimized LDA Mode)...")
     df_train = pd.read_csv(train_path)
     df_test = pd.read_csv(test_path)
 
     def clean_df(df):
+        # 去除字符串空格
         cat_columns = df.select_dtypes(include=['object']).columns
         for col in cat_columns:
             df[col] = df[col].apply(lambda x: x.strip() if isinstance(x, str) else x)
 
+        # 填充缺失值
         df.replace('?', np.nan, inplace=True)
         for col in df.columns:
             if df[col].dtype == 'object':
@@ -29,35 +31,47 @@ def preprocess_data(train_path, test_path):
             else:
                 df[col] = df[col].fillna(df[col].mean())
 
-        # 优化：去除 fnlwgt
+        # 去除 fnlwgt 噪音
         if 'fnlwgt' in df.columns:
             df = df.drop('fnlwgt', axis=1)
 
-        # 优化：对数变换，让数据分布更接近高斯分布 (实验核心目的)
+        # Log变换
         for col in ['capital_gain', 'capital_loss']:
             if col in df.columns:
                 df[col] = np.log1p(df[col])
+
+        # 5. 合并稀有类别
+        if 'native_country' in df.columns:
+            df['native_country'] = df['native_country'].apply(
+                lambda x: 'United-States' if x == 'United-States' else 'Other')
+
         return df
 
     df_train = clean_df(df_train)
     df_test = clean_df(df_test)
 
+    # 提取标签
     y_train = df_train['income'].apply(lambda x: 1 if x == '>50K' else 0).values
     X_train_raw = df_train.drop('income', axis=1)
 
-    # 对齐特征
+    # 合并数据以统一 One-Hot 编码
     X_train_raw['is_train'] = 1
     df_test['is_train'] = 0
     full_data = pd.concat([X_train_raw, df_test], axis=0)
 
+    # 去除 education
     if 'education' in full_data.columns:
         full_data = full_data.drop('education', axis=1)
 
     continuous_cols = ['age', 'education_num', 'capital_gain', 'capital_loss', 'hours_per_week']
     categorical_cols = [c for c in full_data.columns if c not in continuous_cols and c != 'is_train']
 
+    # One-Hot Encoding
     full_data_encoded = pd.get_dummies(full_data, columns=categorical_cols)
     full_data_encoded = full_data_encoded.astype(float)
+
+    # 获取特征名称
+    feature_names = full_data_encoded.drop('is_train', axis=1).columns.tolist()
 
     # 标准化
     for col in continuous_cols:
@@ -66,13 +80,14 @@ def preprocess_data(train_path, test_path):
             std = full_data_encoded[col].std()
             full_data_encoded[col] = (full_data_encoded[col] - mean) / (std + 1e-8)
 
+    # 拆分回训练集和测试集
     X_train = full_data_encoded[full_data_encoded['is_train'] == 1].drop('is_train', axis=1).values
     X_test = full_data_encoded[full_data_encoded['is_train'] == 0].drop('is_train', axis=1).values
 
-    return X_train, y_train, X_test
+    return X_train, y_train, X_test, feature_names
 
 
-# ================= 2. 概率生成模型类 (含 Loss 计算) =================
+# 概率生成模型
 class ProbabilisticGenerativeModel:
     def __init__(self):
         self.w = None
@@ -83,7 +98,6 @@ class ProbabilisticGenerativeModel:
         self.phi = None
 
     def fit(self, X, y):
-        # 1. 统计高斯分布参数 (mu, sigma)
         N = X.shape[0]
         D = X.shape[1]
         X1 = X[y == 1]
@@ -93,53 +107,107 @@ class ProbabilisticGenerativeModel:
         self.mu1 = np.mean(X1, axis=0)
         self.mu2 = np.mean(X2, axis=0)
 
-        # 共享协方差矩阵 (LDA)
+        # 共享协方差矩阵
         X1_centered = X1 - self.mu1
         X2_centered = X2 - self.mu2
         X_centered = np.vstack((X1_centered, X2_centered))
 
         self.sigma = np.dot(X_centered.T, X_centered) / N
-        self.sigma += np.eye(D) * 1e-5  # 防止奇异矩阵
+        self.sigma += np.eye(D) * 1e-4
 
         inv_sigma = np.linalg.inv(self.sigma)
 
-        # 2. 计算权重 w 和 偏置 b (Closed-form solution)
+        # 计算权重 w 和 偏置 b
         self.w = np.dot(inv_sigma, self.mu1 - self.mu2)
+
         term1 = -0.5 * np.dot(np.dot(self.mu1.T, inv_sigma), self.mu1)
         term2 = 0.5 * np.dot(np.dot(self.mu2.T, inv_sigma), self.mu2)
         term3 = np.log(self.phi / (1 - self.phi))
         self.b = term1 + term2 + term3
 
     def predict_proba(self, X):
-        # 计算 Sigmoid 概率 P(y=1|x) = 1 / (1 + exp(-z))
         z = np.dot(X, self.w) + self.b
-        # 限制 z 的范围防止 exp 溢出
         z = np.clip(z, -100, 100)
         return 1 / (1 + np.exp(-z))
 
     def predict(self, X):
-        # 如果 z > 0 (即 P > 0.5), 预测为 1
         z = np.dot(X, self.w) + self.b
         return np.where(z > 0, 1, 0)
 
     def calculate_loss(self, X, y):
-        # 计算交叉熵损失 (Cross Entropy Loss)
-        # Loss = -1/N * sum( y*log(p) + (1-y)*log(1-p) )
-        y_pred_proba = self.predict_proba(X)
-        epsilon = 1e-15  # 防止 log(0)
-        y_pred_proba = np.clip(y_pred_proba, epsilon, 1 - epsilon)
-        loss = -np.mean(y * np.log(y_pred_proba) + (1 - y) * np.log(1 - y_pred_proba))
-        return loss
+        p = self.predict_proba(X)
+        p = np.clip(p, 1e-15, 1 - 1e-15)
+        return -np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))
 
     def save(self, filepath):
-        params = {'w': self.w, 'b': self.b, 'mu1': self.mu1, 'mu2': self.mu2, 'sigma': self.sigma}
         with open(filepath, 'wb') as f:
-            pickle.dump(params, f)
+            pickle.dump(self.__dict__, f)
 
 
-# ================= 3. 主程序 =================
+def plot_class_distribution(y_train):
+    plt.figure(figsize=(6, 4))
+    sns.countplot(x=y_train, hue=y_train, palette='viridis', legend=False)
+    plt.xticks([0, 1], ['<=50K', '>50K'])
+    plt.title('Class Distribution in Training Set')
+    plt.xlabel('Income Class')
+    plt.ylabel('Count')
+    plt.tight_layout()
+    plt.savefig('class_distribution_bar.png')
+    print("Class distribution bar chart saved.")
+
+
+def plot_feature_importance(model, feature_names):
+    if model.w is None:
+        return
+
+    weights = model.w
+    fi_df = pd.DataFrame({'Feature': feature_names, 'Weight': weights})
+    fi_df['AbsWeight'] = fi_df['Weight'].abs()
+
+    top_features = fi_df.sort_values(by='AbsWeight', ascending=False).head(15)
+
+    plt.figure(figsize=(10, 8))
+    sns.barplot(x='Weight', y='Feature', hue='Feature', data=top_features, palette='coolwarm', legend=False)
+    plt.title('Top 15 Feature Importance (LDA Weights)')
+    plt.xlabel('Weight (Positive means correlates with >50K)')
+    plt.tight_layout()
+    plt.savefig('feature_importance_bar.png')
+    print("Feature importance bar chart saved.")
+
+
+def plot_probability_histogram(model, X_val, y_val):
+    probs = model.predict_proba(X_val)
+
+    plt.figure(figsize=(8, 6))
+    plt.hist(probs[y_val == 0], bins=50, alpha=0.5, label='<=50K', color='blue')
+    plt.hist(probs[y_val == 1], bins=50, alpha=0.5, label='>50K', color='red')
+    plt.title('Distribution of Predicted Probabilities (>50K)')
+    plt.xlabel('Predicted Probability')
+    plt.ylabel('Frequency')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('probability_histogram.png')
+    print("Probability histogram saved.")
+
+
+def plot_scatter_pca(X_val, y_val):
+    # PCA to 2D
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X_val)
+
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(X_pca[:, 0], X_pca[:, 1], c=y_val, cmap='coolwarm', alpha=0.5, s=10)
+    plt.colorbar(scatter, ticks=[0, 1], label='Income Class (0: <=50K, 1: >50K)')
+    plt.title('Data Distribution (PCA Projection)')
+    plt.xlabel('Principal Component 1')
+    plt.ylabel('Principal Component 2')
+    plt.tight_layout()
+    plt.savefig('scatter_plot_pca.png')
+    print("Scatter plot (PCA) saved.")
+
+
 if __name__ == "__main__":
-    X_train, y_train, X_test = preprocess_data('../data/train.csv', '../data/test.csv')
+    X_train, y_train, X_test, feature_names = preprocess_data('../data/train.csv', '../data/test.csv')
 
     # 划分验证集
     indices = np.arange(X_train.shape[0])
@@ -149,78 +217,48 @@ if __name__ == "__main__":
     X_sub_train, y_sub_train = X_train[train_idx], y_train[train_idx]
     X_val, y_val = X_train[val_idx], y_train[val_idx]
 
-    # --- A. 学习曲线 (带 Loss 打印) ---
-    print("\n开始模拟训练过程 (Learning Curve)...")
-    train_sizes = np.linspace(0.1, 1.0, 10)
-    train_accs = []
-    val_accs = []
+    # 类别分布柱状图
+    plot_class_distribution(y_train)
 
-    print(f"{'Data %':<10} | {'Train Acc':<12} | {'Val Acc':<12} | {'Train Loss':<12} | {'Val Loss':<12}")
-    print("-" * 70)
-
-    for frac in train_sizes:
-        size = int(frac * X_sub_train.shape[0])
-        X_part = X_sub_train[:size]
-        y_part = y_sub_train[:size]
-
-        temp_model = ProbabilisticGenerativeModel()
-        temp_model.fit(X_part, y_part)
-
-        # Acc
-        t_acc = np.mean(temp_model.predict(X_part) == y_part)
-        v_acc = np.mean(temp_model.predict(X_val) == y_val)
-        train_accs.append(t_acc)
-        val_accs.append(v_acc)
-
-        # Loss (现在有了!)
-        t_loss = temp_model.calculate_loss(X_part, y_part)
-        v_loss = temp_model.calculate_loss(X_val, y_val)
-
-        print(f"{frac * 100:5.0f}%     | {t_acc:.4f}       | {v_acc:.4f}       | {t_loss:.4f}       | {v_loss:.4f}")
-
-    # 绘图
-    plt.figure(figsize=(10, 6))
-    plt.plot(train_sizes * 100, train_accs, 'o-', label='Training Accuracy')
-    plt.plot(train_sizes * 100, val_accs, 'o-', label='Validation Accuracy')
-    plt.xlabel('Training Data Percentage (%)')
-    plt.ylabel('Accuracy')
-    plt.title('Learning Curve: Probabilistic Generative Model')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('learning_curve.png')
-    print("\n学习曲线已保存为 learning_curve.png")
-
-    # --- B. 训练最终模型 ---
-    print("\n正在全量数据上训练最终模型...")
+    # 训练模型
+    print("\nTraining Model...")
     model = ProbabilisticGenerativeModel()
     model.fit(X_sub_train, y_sub_train)
-    model.save('../model/generative_model.pkl')
 
-    final_train_loss = model.calculate_loss(X_sub_train, y_sub_train)
-    final_val_loss = model.calculate_loss(X_val, y_val)
-    print(f"最终训练集 Loss: {final_train_loss:.4f}")
-    print(f"最终验证集 Loss: {final_val_loss:.4f}")
+    # 验证
+    acc = np.mean(model.predict(X_val) == y_val)
+    print(f"Validation Accuracy: {acc * 100:.2f}%")
 
-    # --- C. 混淆矩阵 ---
-    y_pred_val = model.predict(X_val)
-    cm = confusion_matrix(y_val, y_pred_val)
+    # 特征重要性柱状图
+    plot_feature_importance(model, feature_names)
+
+    # 概率直方图
+    plot_probability_histogram(model, X_val, y_val)
+
+    # 散点图
+    plot_scatter_pca(X_val, y_val)
+
+    # 混淆矩阵
+    cm = confusion_matrix(y_val, model.predict(X_val))
     plt.figure(figsize=(6, 5))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                 xticklabels=['<=50K', '>50K'], yticklabels=['<=50K', '>50K'])
     plt.title('Confusion Matrix')
     plt.savefig('confusion_matrix.png')
 
-    # --- D. 预测并生成 Submission (修正ID从1开始) ---
-    print("\n正在生成 submission.csv ...")
+    # 生成 Submission
+    print("\nGenerating Submission...")
     model_full = ProbabilisticGenerativeModel()
     model_full.fit(X_train, y_train)
+
+    model_full.save('../model/generative_model.pkl')
+    print("Model saved to model/generative_model.pkl")
+
     test_preds = model_full.predict(X_test)
 
     submission = pd.DataFrame({
-        'id': range(1, len(test_preds) + 1),  # 修正: ID 从 1 开始
+        'id': range(1, len(test_preds) + 1),
         'label': test_preds
     })
     submission.to_csv('submission.csv', index=False)
-    print(f"完成。文件已保存，共 {len(submission)} 行。")
-    print("前5行预览:")
-    print(submission.head())
+    print("Done.")
