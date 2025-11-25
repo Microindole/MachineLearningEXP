@@ -243,6 +243,8 @@ if __name__ == "__main__":
     plt.figure(figsize=(6, 5))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                 xticklabels=['<=50K', '>50K'], yticklabels=['<=50K', '>50K'])
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
     plt.title('Confusion Matrix')
     plt.savefig('confusion_matrix.png')
 
@@ -260,5 +262,5 @@ if __name__ == "__main__":
         'id': range(1, len(test_preds) + 1),
         'label': test_preds
     })
-    submission.to_csv('submission.csv', index=False)
+    submission.to_csv('../data/submission.csv', index=False)
     print("Done.")
