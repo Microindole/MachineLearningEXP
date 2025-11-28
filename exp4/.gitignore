@@ -1,6 +1,8 @@
 
-x_test.npy
-y_test.npy
-x_train.npy
-y_train.npy
-run.log
+data/x_test.npy
+data/y_test.npy
+data/x_train.npy
+data/y_train.npy
+code/run.log
+
+model/mnist_model_v2.keras
