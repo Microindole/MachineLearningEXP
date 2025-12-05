@@ -1,0 +1,43 @@
+Using device: cpu
+类别: ['Covid', 'Normal', 'Viral Pneumonia']
+
+========== 阶段一：训练自编码器 ==========
+AE Epoch [5/50], Loss: 0.0292
+AE Epoch [10/50], Loss: 0.0134
+AE Epoch [15/50], Loss: 0.0108
+AE Epoch [20/50], Loss: 0.0092
+AE Epoch [25/50], Loss: 0.0079
+AE Epoch [30/50], Loss: 0.0076
+AE Epoch [35/50], Loss: 0.0066
+AE Epoch [40/50], Loss: 0.0064
+AE Epoch [45/50], Loss: 0.0059
+AE Epoch [50/50], Loss: 0.0056
+
+========== 阶段二：训练 CNN ==========
+CNN Epoch [5/50], Loss: 0.3859, Acc: 86.06%, Grad: 5.5425, LR: 0.001000
+CNN Epoch [10/50], Loss: 0.3802, Acc: 86.06%, Grad: 7.6169, LR: 0.000100
+CNN Epoch [15/50], Loss: 0.3662, Acc: 87.65%, Grad: 4.4482, LR: 0.000100
+CNN Epoch [20/50], Loss: 0.2683, Acc: 92.03%, Grad: 4.6314, LR: 0.000010
+CNN Epoch [25/50], Loss: 0.2680, Acc: 91.63%, Grad: 4.3974, LR: 0.000010
+CNN Epoch [30/50], Loss: 0.2898, Acc: 88.05%, Grad: 4.4861, LR: 0.000001
+CNN Epoch [35/50], Loss: 0.2959, Acc: 91.24%, Grad: 4.4079, LR: 0.000001
+CNN Epoch [40/50], Loss: 0.2712, Acc: 89.64%, Grad: 4.1335, LR: 0.000000
+CNN Epoch [45/50], Loss: 0.2763, Acc: 90.44%, Grad: 3.8680, LR: 0.000000
+CNN Epoch [50/50], Loss: 0.3129, Acc: 88.05%, Grad: 4.8014, LR: 0.000000
+
+========== 最终测试与详细指标 ==========
+
+分类报告 (Classification Report):
+                 precision    recall  f1-score   support
+
+          Covid       0.76      0.96      0.85        26
+         Normal       0.85      0.55      0.67        20
+Viral Pneumonia       0.60      0.60      0.60        20
+
+       accuracy                           0.73        66
+      macro avg       0.73      0.70      0.70        66
+   weighted avg       0.74      0.73      0.72        66
+
+自编码器模型已保存至: results\autoencoder.pth
+CNN 模型已保存至: results\cnn.pth
+所有结果图片已保存至 D:\Pycharm\works\MachineLearningEXP\exp6\results 文件夹

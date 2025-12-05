@@ -229,7 +229,7 @@ sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, ytic
 plt.title('Confusion Matrix')
 plt.xlabel('Predicted')
 plt.ylabel('True')
-plt.savefig(os.path.join(RESULT_DIR, 'confusion_matrix.png'))  # 保存图片
+plt.savefig(os.path.join(RESULT_DIR, 'confusion_matrix3.png'))  # 保存图片
 plt.show()
 
 # 3. 绘制训练曲线 + 梯度变化
@@ -251,7 +251,7 @@ plt.title('Gradient Flow (Check for vanishing/exploding)')
 plt.xlabel('Epoch')
 plt.legend()
 
-plt.savefig(os.path.join(RESULT_DIR, 'training_metrics.png'))  # 保存图片
+plt.savefig(os.path.join(RESULT_DIR, 'training_metrics3.png'))  # 保存图片
 plt.show()
 
 # 4. 保存去噪对比图
@@ -274,7 +274,7 @@ for i in range(5):
     plt.imshow(denoised_np[i].reshape(IMG_SIZE, IMG_SIZE), cmap='gray')
     plt.axis('off')
     if i == 2: plt.title("Denoised")
-plt.savefig(os.path.join(RESULT_DIR, 'denoising_result.png'))  # 保存图片
+plt.savefig(os.path.join(RESULT_DIR, 'denoising_result3.png'))  # 保存图片
 plt.show()
 
 # ==========================================
