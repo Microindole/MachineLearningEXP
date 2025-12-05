@@ -1,145 +1,176 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 import os
 
 # ==========================================
-# 1. 解决 Keras 3 兼容性导入
+# 1. 解决依赖与导入
 # ==========================================
-# 实验指导书基于旧版 Keras，新版需要单独导入处理工具
 try:
     from keras_preprocessing.text import Tokenizer
     from keras_preprocessing.sequence import pad_sequences
 except ImportError:
     print("错误：未安装 keras-preprocessing 库。")
-    print("请在终端运行: pip install keras-preprocessing")
+    print("请运行: pip install keras-preprocessing")
     exit()
 
-from keras.models import Sequential
-from keras.layers import Embedding, LSTM, Dense, Dropout
+from sklearn.metrics import classification_report, confusion_matrix
+from keras.models import Sequential, load_model
+from keras.layers import Embedding, LSTM, Dense, Dropout, Bidirectional
 from keras.utils import to_categorical
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+
+# 创建结果保存目录
+RESULT_DIR = 'results_task2'
+os.makedirs(RESULT_DIR, exist_ok=True)
 
 # ==========================================
-# 2. 数据读取与配置
+# 2. 配置与超参数 (升级版)
 # ==========================================
-# 根据你的截图，数据在 data/review 目录下
 TRAIN_PATH = os.path.join('data', 'review', 'drugsComTrain_raw.csv')
 TEST_PATH = os.path.join('data', 'review', 'drugsComTest_raw.csv')
 
-# 超参数
-VOCAB_SIZE = 5000   # 词典大小（保留最常出现的5000个词）
-MAX_LEN = 100       # 每个评论截断/补齐为100个词
-EMBED_DIM = 64      # 词向量维度
-LSTM_UNITS = 64     # LSTM 单元数
+# --- 改进点：增大模型容量 ---
+VOCAB_SIZE = 10000  # 词典大小 (从 5000 -> 10000)
+MAX_LEN = 150  # 序列长度 (从 100 -> 150，覆盖更多长评论)
+EMBED_DIM = 128  # 词向量维度 (从 64 -> 128)
+LSTM_UNITS = 64
 BATCH_SIZE = 128
-EPOCHS = 5          # 训练轮数
+EPOCHS = 20  # 设大一点，配合早停法使用
 
-print("正在读取数据...")
+print(f"结果将保存至: {os.path.abspath(RESULT_DIR)}")
+
+# ==========================================
+# 3. 数据处理
+# ==========================================
 if not os.path.exists(TRAIN_PATH):
-    print(f"找不到文件: {TRAIN_PATH}，请检查路径！")
+    print(f"找不到文件: {TRAIN_PATH}")
     exit()
 
+print("正在读取数据...")
 train_df = pd.read_csv(TRAIN_PATH)
 test_df = pd.read_csv(TEST_PATH)
 
-# 只取部分数据进行快速实验（可选，如果跑得慢可以取消注释下面两行）
-# train_df = train_df.iloc[:10000]
-# test_df = test_df.iloc[:2000]
 
-print(f"训练集大小: {len(train_df)}")
-print(f"测试集大小: {len(test_df)}")
-
-# ==========================================
-# 3. 数据预处理
-# ==========================================
-
-# --- 3.1 标签处理 (Rating -> Sentiment) ---
-# 1-4分: 消极(0), 5-6分: 中性(1), 7-10分: 积极(2)
+# 处理标签: 1-4(消极0), 5-6(中性1), 7-10(积极2)
 def process_rating(rating):
-    if rating <= 4: return 0
-    elif rating <= 6: return 1
-    else: return 2
+    if rating <= 4:
+        return 0
+    elif rating <= 6:
+        return 1
+    else:
+        return 2
 
-print("正在处理标签...")
-y_train = train_df['rating'].apply(process_rating).values
-y_test = test_df['rating'].apply(process_rating).values
 
-# 转为独热编码 (One-hot)
-y_train = to_categorical(y_train, num_classes=3)
-y_test = to_categorical(y_test, num_classes=3)
+y_train = to_categorical(train_df['rating'].apply(process_rating).values, num_classes=3)
+y_test = to_categorical(test_df['rating'].apply(process_rating).values, num_classes=3)
 
-# --- 3.2 文本处理 (Review -> Sequence) ---
-print("正在处理文本 (这可能需要几秒钟)...")
+# 处理文本
+print("正在构建词典与序列化...")
 X_train_text = train_df['review'].astype(str).values
 X_test_text = test_df['review'].astype(str).values
 
-# 初始化 Tokenizer
 tokenizer = Tokenizer(num_words=VOCAB_SIZE, oov_token='<OOV>')
-# 仅在训练集上构建词典
 tokenizer.fit_on_texts(X_train_text)
 
-# 文本转数字序列
-X_train_seq = tokenizer.texts_to_sequences(X_train_text)
-X_test_seq = tokenizer.texts_to_sequences(X_test_text)
+X_train = pad_sequences(tokenizer.texts_to_sequences(X_train_text), maxlen=MAX_LEN, padding='post')
+X_test = pad_sequences(tokenizer.texts_to_sequences(X_test_text), maxlen=MAX_LEN, padding='post')
 
-# 填充序列 (Padding)
-X_train = pad_sequences(X_train_seq, maxlen=MAX_LEN, padding='post', truncating='post')
-X_test = pad_sequences(X_test_seq, maxlen=MAX_LEN, padding='post', truncating='post')
-
-print(f"数据准备就绪。输入形状: {X_train.shape}, 标签形状: {y_train.shape}")
+print(f"数据准备就绪。输入: {X_train.shape}")
 
 # ==========================================
-# 4. 搭建 LSTM 模型
+# 4. 搭建模型 (升级为双向 LSTM)
 # ==========================================
 model = Sequential()
+model.add(Embedding(input_dim=VOCAB_SIZE, output_dim=EMBED_DIM))  # Keras 3 移除了 input_length 参数，可直接省略
 
-# 嵌入层: 将整数索引映射为密集向量
-model.add(Embedding(input_dim=VOCAB_SIZE, output_dim=EMBED_DIM, input_length=MAX_LEN))
+# --- 改进点：使用 Bidirectional LSTM ---
+# 双向 LSTM 可以同时捕捉上下文信息
+model.add(Bidirectional(LSTM(LSTM_UNITS, return_sequences=True)))  # 第一层 LSTM，返回序列给下一层
+model.add(Dropout(0.3))  # 防止过拟合
+model.add(Bidirectional(LSTM(32)))  # 第二层 LSTM
+model.add(Dropout(0.3))
 
-# LSTM 层: 处理序列信息
-model.add(LSTM(LSTM_UNITS, dropout=0.2, recurrent_dropout=0.0))
-# 注意: recurrent_dropout 在 GPU 上可能导致无法使用 CuDNN 加速，设为 0 以保证速度
-
-# 输出层: 3分类
+model.add(Dense(32, activation='relu'))
 model.add(Dense(3, activation='softmax'))
 
-model.compile(loss='categorical_crossentropy',
-              optimizer='adam',
-              metrics=['accuracy'])
-
+model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+model.build(input_shape=(None, MAX_LEN))  # 显式构建模型以显示 summary
 model.summary()
 
 # ==========================================
-# 5. 训练与评估
+# 5. 训练模型 (加入回调函数)
 # ==========================================
-print("\n开始训练模型...")
+# 早停法：如果验证集 Loss 在 3 轮内不下降，就停止训练
+early_stop = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+
+print("\n开始训练 (Epochs设为20，但可能会提前停止)...")
 history = model.fit(X_train, y_train,
                     epochs=EPOCHS,
                     batch_size=BATCH_SIZE,
                     validation_data=(X_test, y_test),
+                    callbacks=[early_stop],  # 使用回调
                     verbose=1)
 
 # ==========================================
-# 6. 结果可视化
+# 6. 保存模型
 # ==========================================
+model_save_path = os.path.join(RESULT_DIR, 'sentiment_model.keras')
+model.save(model_save_path)
+print(f"\n模型已保存至: {model_save_path}")
+
+# ==========================================
+# 7. 详细评估与可视化
+# ==========================================
+print("\n正在生成详细评估报告...")
+
+# 预测
+y_pred_probs = model.predict(X_test)
+y_pred = np.argmax(y_pred_probs, axis=1)
+y_true = np.argmax(y_test, axis=1)
+class_names = ['Negative', 'Neutral', 'Positive']
+
+# --- 7.1 分类报告 (F1, Precision, Recall) ---
+report = classification_report(y_true, y_pred, target_names=class_names)
+print("\n========== 分类报告 ==========")
+print(report)
+# 将报告保存到文本文件
+with open(os.path.join(RESULT_DIR, 'classification_report.txt'), 'w') as f:
+    f.write(report)
+
+# --- 7.2 混淆矩阵热力图 ---
+cm = confusion_matrix(y_true, y_pred)
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
+plt.title('Confusion Matrix')
+plt.ylabel('True Label')
+plt.xlabel('Predicted Label')
+plt.tight_layout()
+plt.savefig(os.path.join(RESULT_DIR, 'confusion_matrix.png'))
+plt.show()
+
+# --- 7.3 训练曲线 (Accuracy & Loss) ---
 acc = history.history['accuracy']
 val_acc = history.history['val_accuracy']
 loss = history.history['loss']
 val_loss = history.history['val_loss']
 epochs_range = range(1, len(acc) + 1)
 
-plt.figure(figsize=(12, 4))
-
+plt.figure(figsize=(12, 5))
 plt.subplot(1, 2, 1)
-plt.plot(epochs_range, acc, label='Training Accuracy')
-plt.plot(epochs_range, val_acc, label='Validation Accuracy')
-plt.title('Training and Validation Accuracy')
+plt.plot(epochs_range, acc, label='Train Accuracy')
+plt.plot(epochs_range, val_acc, label='Val Accuracy')
+plt.title('Accuracy Curve')
 plt.legend()
 
 plt.subplot(1, 2, 2)
-plt.plot(epochs_range, loss, label='Training Loss')
-plt.plot(epochs_range, val_loss, label='Validation Loss')
-plt.title('Training and Validation Loss')
+plt.plot(epochs_range, loss, label='Train Loss')
+plt.plot(epochs_range, val_loss, label='Val Loss')
+plt.title('Loss Curve')
 plt.legend()
 
+plt.savefig(os.path.join(RESULT_DIR, 'training_curves.png'))
 plt.show()
+
+print(f"所有结果已保存到 {RESULT_DIR} 文件夹中。")
