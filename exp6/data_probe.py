@@ -28,41 +28,71 @@ def run_probe():
     total_samples = len(df)
     print(f"原始数据总行数: {total_samples}")
 
-    # ================= 1. 长度分析 (MAX_LEN 合理性) =================
-    print("\n[1/3]正在分析评论长度...")
-    # 简单分词计算长度
-    df['word_count'] = df['review'].apply(lambda x: len(str(x).split()))
+    # ================= 1. 长度分析 (多尺度梯度探测) =================
+    print("\n[1/3]正在分析评论长度 (梯度探测)...")
 
-    # 计算有多少样本在 MAX_LEN 范围内
-    covered_samples = len(df[df['word_count'] <= TARGET_MAX_LEN])
-    coverage_rate = (covered_samples / total_samples) * 100
+    # 1. 基础计算
+    # 将 review 列转为字符串并计算长度
+    df['word_count'] = df['review'].astype(str).apply(lambda x: len(x.split()))
+    total_words_all = df['word_count'].sum()
 
-    # 计算统计指标
-    avg_len = df['word_count'].mean()
-    median_len = df['word_count'].median()
-    percentile_90 = np.percentile(df['word_count'], 90)
+    # 2. 设定探测梯度 (从 50 到 300，步长 25，再加上 500)
+    test_lengths = list(range(50, 301, 25)) + [400, 500]
 
-    print(f" -> 平均长度: {avg_len:.1f} 词")
-    print(f" -> 中位数长度: {median_len:.1f} 词")
-    print(f" -> 90% 的评论都在 {percentile_90:.1f} 词以内")
-    print(f" -> 设定 MAX_LEN={TARGET_MAX_LEN} 时，完整覆盖了 {coverage_rate:.2f}% 的评论")
+    print(f"\n   {'截断长度':<10} | {'样本覆盖率':<12} | {'信息保留率':<12} | {'计算负载倍数'}")
+    print("-" * 65)
 
-    if coverage_rate > 80:
-        print("    [结论] ✅ 长度截断合理，绝大多数信息被保留。")
-    else:
-        print("    [警告] ⚠️ 可能截断了过多信息，建议适当增加 MAX_LEN。")
+    results_sample_cov = []
+    results_info_ret = []
 
-    # 绘制长度分布图
-    plt.figure(figsize=(10, 6))
-    sns.histplot(df['word_count'], bins=100, kde=True)
-    plt.axvline(x=TARGET_MAX_LEN, color='r', linestyle='--', label=f'当前设定 ({TARGET_MAX_LEN})')
-    plt.axvline(x=percentile_90, color='g', linestyle=':', label=f'90%分位点 ({int(percentile_90)})')
-    plt.title(f'评论长度分布与截断位置 (覆盖率: {coverage_rate:.1f}%)')
-    plt.xlabel('单词数量')
-    plt.legend()
-    plt.xlim(0, 500)
-    plt.savefig(os.path.join(RESULT_DIR, 'analysis_length.png'))
-    print(f"    图表已保存: {RESULT_DIR}/analysis_length.png")
+    base_load = 50 # 假设以 50 为基准计算量
+
+    for length in test_lengths:
+        # A. 样本覆盖率：有多少条评论长度完全 <= length
+        covered_samples = len(df[df['word_count'] <= length])
+        sample_cov = (covered_samples / total_samples) * 100
+
+        # B. 信息保留率：截断后保留了多少单词总量
+        # 使用 clip 函数模拟截断：超过 length 的变成 length
+        retained_words = df['word_count'].clip(upper=length).sum()
+        info_ret = (retained_words / total_words_all) * 100
+
+        # C. 计算负载（相对值）：长度越长，LSTM计算量线性增加
+        load_factor = length / 50.0
+
+        print(f"   {length:<14} | {sample_cov:.2f}%       | {info_ret:.2f}%       | {load_factor:.1f}x")
+
+        results_sample_cov.append(sample_cov)
+        results_info_ret.append(info_ret)
+
+    print("-" * 65)
+    print(" [分析指导]：")
+    print(" 1. '样本覆盖率'低不要紧，只要'信息保留率'高就行。")
+    print(" 2. 寻找'拐点'：当长度增加，但信息保留率提升不明显时，就是最佳点。")
+
+    # 3. 绘制双轴图表
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    color = 'tab:blue'
+    ax1.set_xlabel('截断长度 (MAX_LEN)')
+    ax1.set_ylabel('样本覆盖率 (Sample Coverage %)', color=color)
+    ax1.plot(test_lengths, results_sample_cov, color=color, marker='o', label='样本覆盖率')
+    ax1.tick_params(axis='y', labelcolor=color)
+    ax1.grid(True, alpha=0.3)
+
+    ax2 = ax1.twinx()  # 创建共享x轴的第二个y轴
+    color = 'tab:orange'
+    ax2.set_ylabel('信息保留率 (Info Retention %)', color=color)
+    ax2.plot(test_lengths, results_info_ret, color=color, marker='s', linestyle='--', label='信息保留率')
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    # 标记当前的推荐值
+    plt.axvline(x=140, color='green', linestyle=':', label='推荐值 (140)')
+
+    plt.title('长度截断对信息量的影响 (收益 vs 成本)')
+    fig.tight_layout()
+    plt.savefig(os.path.join(RESULT_DIR, 'analysis_length_gradient.png'))
+    print(f"    梯度分析图已保存: {RESULT_DIR}/analysis_length_gradient.png")
 
     # ================= 2. 词汇分析 (多尺度对比) =================
     print("\n[2/3]正在分析词汇覆盖率 (多尺度对比)...")
