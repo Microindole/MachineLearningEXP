@@ -1,0 +1,42 @@
+当前使用设备: cuda
+显卡型号: NVIDIA GeForce RTX 3050 Laptop GPU
+
+[Step 1] 构建词典...
+
+[Step 2] 准备数据加载器...
+ -> 数据分析图表已保存
+正在加载 训练集...
+正在加载 测试集...
+
+[Step 3] 计算类别权重 (解决样本不平衡)...
+ -> 类别权重: [1.34162612 3.74517043 0.50311293]
+
+[Step 4] 初始化高级模型 (Bi-GRU + Attention)...
+
+[Step 5] 开始训练...
+E:\anaconda3\envs\ml_env\lib\site-packages\torch\optim\lr_scheduler.py:62: UserWarning: The verbose parameter is deprecated. Please use get_last_lr() to access the learning rate.
+  warnings.warn(
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.940, acc=0.64]Epoch: 01 | LR: 0.001000 | Train Loss: 0.907 | Val Loss: 0.813 | Val Acc: 68.50%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.718, acc=0.69]Epoch: 02 | LR: 0.001000 | Train Loss: 0.772 | Val Loss: 0.754 | Val Acc: 68.32%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.734, acc=0.72]Epoch: 03 | LR: 0.001000 | Train Loss: 0.725 | Val Loss: 0.725 | Val Acc: 71.64%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.618, acc=0.81]Epoch: 04 | LR: 0.001000 | Train Loss: 0.692 | Val Loss: 0.717 | Val Acc: 76.01%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.668, acc=0.75]Epoch: 05 | LR: 0.001000 | Train Loss: 0.661 | Val Loss: 0.707 | Val Acc: 75.98%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.581, acc=0.72]Epoch: 06 | LR: 0.001000 | Train Loss: 0.631 | Val Loss: 0.689 | Val Acc: 71.97%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.500, acc=0.84]Epoch: 07 | LR: 0.001000 | Train Loss: 0.599 | Val Loss: 0.680 | Val Acc: 74.78%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.369, acc=0.91]Epoch: 08 | LR: 0.001000 | Train Loss: 0.563 | Val Loss: 0.673 | Val Acc: 76.84%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.383, acc=0.86]Epoch: 09 | LR: 0.001000 | Train Loss: 0.526 | Val Loss: 0.677 | Val Acc: 78.68%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.475, acc=0.77]Epoch: 10 | LR: 0.001000 | Train Loss: 0.486 | Val Loss: 0.672 | Val Acc: 77.80%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.450, acc=0.75]Epoch: 11 | LR: 0.001000 | Train Loss: 0.446 | Val Loss: 0.678 | Val Acc: 79.62%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.319, acc=0.91]Epoch: 12 | LR: 0.001000 | Train Loss: 0.410 | Val Loss: 0.695 | Val Acc: 79.22%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.283, acc=0.84]Epoch: 13 | LR: 0.000500 | Train Loss: 0.373 | Val Loss: 0.683 | Val Acc: 80.78%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.121, acc=0.95]Epoch: 14 | LR: 0.000500 | Train Loss: 0.271 | Val Loss: 0.792 | Val Acc: 83.89%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.138, acc=0.95]Epoch: 15 | LR: 0.000500 | Train Loss: 0.227 | Val Loss: 0.811 | Val Acc: 83.15%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.148, acc=0.92]Epoch: 16 | LR: 0.000250 | Train Loss: 0.204 | Val Loss: 0.890 | Val Acc: 84.46%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.161, acc=0.92]Epoch: 17 | LR: 0.000250 | Train Loss: 0.150 | Val Loss: 1.012 | Val Acc: 85.57%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.099, acc=0.97]Epoch: 18 | LR: 0.000250 | Train Loss: 0.128 | Val Loss: 1.078 | Val Acc: 86.23%
+Training:   0%|          | 0/2521 [00:00<?, ?it/s, loss=0.110, acc=0.92]Epoch: 19 | LR: 0.000125 | Train Loss: 0.117 | Val Loss: 1.153 | Val Acc: 86.22%
+Epoch: 20 | LR: 0.000125 | Train Loss: 0.092 | Val Loss: 1.246 | Val Acc: 87.15%
+
+[Step 6] 正在绘制分析图表...
+
+PyTorch 升级版训练完成！所有结果已保存至: results_task2_pytorch_advanced

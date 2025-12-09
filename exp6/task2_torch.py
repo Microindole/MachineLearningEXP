@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
@@ -8,36 +9,39 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from collections import Counter
-# [新增] 引入更多 sklearn 指标用于绘图
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, precision_recall_curve, average_precision_score
 from sklearn.preprocessing import label_binarize
 from sklearn.utils import class_weight
 from itertools import cycle
 from tqdm import tqdm
 
-# 解决中文乱码
+# ==========================================
+# 0. 全局配置与环境
+# ==========================================
+# 解决中文显示问题
 plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
-# ==========================================
-# 1. 配置
-# ==========================================
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"使用设备: {device}")
+print(f"当前使用设备: {device}")
+if device.type == 'cuda':
+    print(f"显卡型号: {torch.cuda.get_device_name(0)}")
 
-RESULT_DIR = 'results_task2_pytorch_final'
+# 结果保存路径
+RESULT_DIR = 'results_task2_pytorch_advanced'
 os.makedirs(RESULT_DIR, exist_ok=True)
 
+# 超参数配置
 VOCAB_SIZE = 5000
 MAX_LEN = 150
 EMBED_DIM = 64
-HIDDEN_DIM = 32
+HIDDEN_DIM = 64  # 加大隐藏层维度
 BATCH_SIZE = 64
-EPOCHS = 15
+EPOCHS = 20      # 增加轮数，配合早停和学习率衰减
 LEARNING_RATE = 0.001
 
 # ==========================================
-# 2. 数据工具
+# 1. 数据预处理工具
 # ==========================================
 class TextPipeline:
     def __init__(self, vocab_size=5000):
@@ -69,7 +73,7 @@ class DrugReviewDataset(Dataset):
         self.pipeline = pipeline
         self.is_train = is_train
 
-        # [新增] 仅在训练集加载时生成数据分析图
+        # 仅在训练集加载时生成数据分析图
         if is_train:
             self.plot_data_analysis(self.df)
 
@@ -83,21 +87,26 @@ class DrugReviewDataset(Dataset):
         else: return 2
 
     def plot_data_analysis(self, df):
-        """[新增] 绘制数据分布，用于报告"""
+        """生成数据分布报告图"""
         plt.figure(figsize=(10, 5))
+        # 图1：情感标签分布
         plt.subplot(1, 2, 1)
         label_counts = df['rating'].apply(lambda x: 'Negative' if x<=4 else ('Neutral' if x<=6 else 'Positive')).value_counts()
         plt.pie(label_counts, labels=label_counts.index, autopct='%1.1f%%', colors=['#ff9999','#66b3ff','#99ff99'])
-        plt.title('训练集情感标签分布')
+        plt.title('数据分布: 情感标签')
 
+        # 图2：长度分布
         plt.subplot(1, 2, 2)
         seq_lengths = df['review'].apply(lambda x: len(str(x).split()))
         plt.hist(seq_lengths, bins=50, color='lightgreen', edgecolor='black', range=(0, 400))
-        plt.axvline(x=MAX_LEN, color='r', linestyle='--', label=f'截断 ({MAX_LEN})')
-        plt.title('评论长度分布')
+        plt.axvline(x=MAX_LEN, color='r', linestyle='--', label=f'截断长度 ({MAX_LEN})')
+        plt.title('数据分布: 评论长度')
+        plt.legend()
+
         plt.tight_layout()
         plt.savefig(os.path.join(RESULT_DIR, 'report_data_analysis.png'))
         plt.close()
+        print(" -> 数据分析图表已保存")
 
     def __len__(self):
         return len(self.df)
@@ -106,43 +115,60 @@ class DrugReviewDataset(Dataset):
         return self.encoded_texts[idx], torch.tensor(self.labels[idx], dtype=torch.long)
 
 # ==========================================
-# 3. 定义模型 (升级为 Bi-GRU)
+# 2. 定义高级模型 (Bi-GRU + Attention)
 # ==========================================
-class SentimentGRU(nn.Module):
+class SelfAttention(nn.Module):
+    def __init__(self, hidden_dim):
+        super(SelfAttention, self).__init__()
+        self.projection = nn.Sequential(
+            nn.Linear(hidden_dim, 64),
+            nn.Tanh(),
+            nn.Linear(64, 1)
+        )
+
+    def forward(self, encoder_outputs):
+        # encoder_outputs: [batch, seq_len, hidden_dim]
+        energy = self.projection(encoder_outputs) # [batch, seq_len, 1]
+        weights = F.softmax(energy.squeeze(-1), dim=1) # [batch, seq_len]
+        # 加权求和: (batch, seq_len, 1) * (batch, seq_len, hidden) -> sum -> (batch, hidden)
+        outputs = (encoder_outputs * weights.unsqueeze(-1)).sum(dim=1)
+        return outputs, weights
+
+class SentimentGRU_Attention(nn.Module):
     def __init__(self, vocab_size, embed_dim, hidden_dim, output_dim):
-        super(SentimentGRU, self).__init__()
+        super(SentimentGRU_Attention, self).__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
 
-        # [修改点] 开启 bidirectional=True
+        # 双向 GRU
         self.gru = nn.GRU(embed_dim, hidden_dim, batch_first=True, bidirectional=True)
 
-        self.dropout = nn.Dropout(0.5)
+        # 注意力层 (输入是 hidden*2 因为是双向)
+        self.attention = SelfAttention(hidden_dim * 2)
 
-        # [修改点] 因为是双向，全连接层的输入维度变为 hidden_dim * 2
+        self.dropout = nn.Dropout(0.5)
         self.fc = nn.Linear(hidden_dim * 2, output_dim)
 
     def forward(self, x):
         embedded = self.embedding(x)
-        # output, hidden
-        _, hidden = self.gru(embedded)
 
-        # [修改点] 拼接双向的 hidden state
-        # hidden shape: [num_layers * num_directions, batch, hidden_dim]
-        # 取最后两个维度的 hidden state (前向最后一层 + 后向最后一层) 进行拼接
-        # hidden[-2, :, :] 是前向，hidden[-1, :, :] 是后向
-        hidden_cat = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
+        # gru_output: [batch, seq_len, hidden*2]
+        gru_output, _ = self.gru(embedded)
 
-        out = self.dropout(hidden_cat)
+        # 通过 Attention 聚合信息
+        context_vector, _ = self.attention(gru_output)
+
+        out = self.dropout(context_vector)
         out = self.fc(out)
         return out
 
 # ==========================================
-# 4. 训练与评估
+# 3. 训练与评估函数
 # ==========================================
 def train_model(model, iterator, optimizer, criterion):
     model.train()
     epoch_loss, epoch_acc = 0, 0
     progress_bar = tqdm(iterator, desc='Training', leave=False)
+
     for texts, labels in progress_bar:
         texts, labels = texts.to(device), labels.to(device)
         optimizer.zero_grad()
@@ -154,14 +180,13 @@ def train_model(model, iterator, optimizer, criterion):
         epoch_loss += loss.item()
         epoch_acc += acc.item()
         progress_bar.set_postfix({'loss': f'{loss.item():.3f}', 'acc': f'{acc.item():.2f}'})
+
     return epoch_loss / len(iterator), epoch_acc / len(iterator)
 
 def evaluate_model(model, iterator, criterion):
     model.eval()
     epoch_loss, epoch_acc = 0, 0
-    all_labels = []
-    all_preds = []
-    all_probs = [] # [新增] 用于画 ROC/PR 曲线
+    all_labels, all_preds, all_probs = [], [], []
 
     with torch.no_grad():
         for texts, labels in iterator:
@@ -175,81 +200,93 @@ def evaluate_model(model, iterator, criterion):
 
             all_labels.extend(labels.cpu().numpy())
             all_preds.extend(predictions.argmax(1).cpu().numpy())
-            # Softmax 获取概率用于绘图
-            probs = torch.softmax(predictions, dim=1)
-            all_probs.extend(probs.cpu().numpy())
+            all_probs.extend(torch.softmax(predictions, dim=1).cpu().numpy())
 
     return epoch_loss / len(iterator), epoch_acc / len(iterator), np.array(all_labels), np.array(all_preds), np.array(all_probs)
 
 # ==========================================
-# 5. 主程序
+# 4. 主程序
 # ==========================================
 if __name__ == "__main__":
     TRAIN_PATH = os.path.join('data', 'review', 'drugsComTrain_raw.csv')
     TEST_PATH = os.path.join('data', 'review', 'drugsComTest_raw.csv')
 
-    print("构建词典...")
+    print("\n[Step 1] 构建词典...")
     raw_train = pd.read_csv(TRAIN_PATH)
     pipeline = TextPipeline(vocab_size=VOCAB_SIZE)
     pipeline.fit(raw_train['review'])
 
+    print("\n[Step 2] 准备数据加载器...")
     train_dataset = DrugReviewDataset(TRAIN_PATH, pipeline, is_train=True)
     test_dataset = DrugReviewDataset(TEST_PATH, pipeline, is_train=False)
+
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-    print("计算类别权重...")
+    print("\n[Step 3] 计算类别权重 (解决样本不平衡)...")
     y_train_numpy = train_dataset.labels
     class_weights = class_weight.compute_class_weight(
         class_weight='balanced', classes=np.unique(y_train_numpy), y=y_train_numpy)
     class_weights_tensor = torch.tensor(class_weights, dtype=torch.float).to(device)
+    print(f" -> 类别权重: {class_weights}")
 
-    model = SentimentGRU(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, output_dim=3).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    print("\n[Step 4] 初始化高级模型 (Bi-GRU + Attention)...")
+    model = SentimentGRU_Attention(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, output_dim=3).to(device)
+
+    # [优化点] 添加 weight_decay (L2正则化)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
+
+    # [优化点] 添加学习率调度器
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2, verbose=True)
+
     criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
 
-    print("\n开始 PyTorch 训练 (Bi-GRU)...")
+    print("\n[Step 5] 开始训练...")
     best_valid_loss = float('inf')
     history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
 
     for epoch in range(EPOCHS):
         train_loss, train_acc = train_model(model, train_loader, optimizer, criterion)
-        # 注意这里接收 5 个返回值
         valid_loss, valid_acc, _, _, _ = evaluate_model(model, test_loader, criterion)
+
+        # 更新学习率
+        scheduler.step(valid_loss)
+        current_lr = optimizer.param_groups[0]['lr']
 
         history['train_loss'].append(train_loss)
         history['train_acc'].append(train_acc)
         history['val_loss'].append(valid_loss)
         history['val_acc'].append(valid_acc)
 
-        print(f'Epoch: {epoch+1:02} | Train Loss: {train_loss:.3f} | Val Loss: {valid_loss:.3f} | Val Acc: {valid_acc*100:.2f}%')
+        print(f'Epoch: {epoch+1:02} | LR: {current_lr:.6f} | Train Loss: {train_loss:.3f} | Val Loss: {valid_loss:.3f} | Val Acc: {valid_acc*100:.2f}%')
 
         if valid_loss < best_valid_loss:
             best_valid_loss = valid_loss
             torch.save(model.state_dict(), os.path.join(RESULT_DIR, 'best_model.pt'))
 
     # ==========================================
-    # 6. 绘图 (与 Keras 保持一致)
+    # 5. 结果可视化
     # ==========================================
-    print("\n正在绘制图表...")
+    print("\n[Step 6] 正在绘制分析图表...")
 
-    # (1) 训练曲线
-    epochs_range = range(1, EPOCHS + 1)
+    # (1) 训练过程曲线
+    epochs_range = range(1, len(history['train_loss']) + 1)
     plt.figure(figsize=(12, 5))
     plt.subplot(1, 2, 1)
     plt.plot(epochs_range, history['train_acc'], label='Train Acc')
     plt.plot(epochs_range, history['val_acc'], label='Val Acc')
-    plt.title('PyTorch: 准确率')
+    plt.title('准确率 (Accuracy)')
     plt.legend()
+
     plt.subplot(1, 2, 2)
     plt.plot(epochs_range, history['train_loss'], label='Train Loss')
     plt.plot(epochs_range, history['val_loss'], label='Val Loss')
-    plt.title('PyTorch: 损失值')
+    plt.title('损失值 (Loss)')
     plt.legend()
-    plt.savefig(os.path.join(RESULT_DIR, 'pytorch_curves.png'))
+    plt.savefig(os.path.join(RESULT_DIR, 'pytorch_learning_curves.png'))
     plt.close()
 
-    # 加载最佳模型进行最终评估
+    # 加载最佳模型
     model.load_state_dict(torch.load(os.path.join(RESULT_DIR, 'best_model.pt')))
     _, _, y_true, y_pred, y_probs = evaluate_model(model, test_loader, criterion)
     class_names = ['Negative', 'Neutral', 'Positive']
@@ -258,7 +295,7 @@ if __name__ == "__main__":
     cm = confusion_matrix(y_true, y_pred)
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Greens', xticklabels=class_names, yticklabels=class_names)
-    plt.title('PyTorch: 混淆矩阵')
+    plt.title('混淆矩阵 (Confusion Matrix)')
     plt.savefig(os.path.join(RESULT_DIR, 'pytorch_confusion_matrix.png'))
     plt.close()
 
@@ -273,11 +310,11 @@ if __name__ == "__main__":
         plt.plot(fpr[i], tpr[i], color=color, lw=2, label='ROC {0} (AUC={1:0.2f})'.format(class_names[i], roc_auc[i]))
     plt.plot([0, 1], [0, 1], 'k--', lw=2)
     plt.legend()
-    plt.title('PyTorch: ROC 曲线')
+    plt.title('ROC 曲线')
     plt.savefig(os.path.join(RESULT_DIR, 'pytorch_roc.png'))
     plt.close()
 
-    # (4) PR 曲线
+    # (4) PR 曲线 (关注不平衡类)
     precision, recall, average_precision = dict(), dict(), dict()
     plt.figure(figsize=(8, 6))
     for i, color in zip(range(3), colors):
@@ -285,13 +322,13 @@ if __name__ == "__main__":
         average_precision[i] = average_precision_score(y_test_bin[:, i], y_probs[:, i])
         plt.plot(recall[i], precision[i], color=color, lw=2, label='PR {0} (AP={1:0.2f})'.format(class_names[i], average_precision[i]))
     plt.legend()
-    plt.title('PyTorch: PR 曲线')
+    plt.title('PR 曲线 (Precision-Recall)')
     plt.savefig(os.path.join(RESULT_DIR, 'pytorch_pr_curve.png'))
     plt.close()
 
     # 文本报告
     report = classification_report(y_true, y_pred, target_names=class_names)
-    with open(os.path.join(RESULT_DIR, 'pytorch_report.txt'), 'w') as f:
+    with open(os.path.join(RESULT_DIR, 'pytorch_final_report.txt'), 'w') as f:
         f.write(report)
 
-    print(f"PyTorch 复现完成！结果位于: {RESULT_DIR}")
+    print(f"\nPyTorch 升级版训练完成！所有结果已保存至: {RESULT_DIR}")

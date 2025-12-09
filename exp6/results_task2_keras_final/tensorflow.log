@@ -1,0 +1,59 @@
+2025-12-09 12:09:57.405749: I tensorflow/core/util/port.cc:113] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2025-12-09 12:09:58.231799: I tensorflow/core/util/port.cc:113] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+1. 正在读取数据...
+正在生成数据分析图表...
+  -> 数据分析图已保存: report_data_analysis.png
+2. 正在进行文本序列化...
+3. 计算类别权重 (Class Weights)...
+   权重策略: {0: 1.3416261176959867, 1: 3.745170428160119, 2: 0.5031129327070037}
+4. 搭建模型 (Bi-GRU)...
+2025-12-09 12:10:15.829626: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Model: "sequential"
+┌─────────────────────────────────┬────────────────────────┬───────────────┐
+│ Layer (type)                    │ Output Shape           │       Param # │
+├─────────────────────────────────┼────────────────────────┼───────────────┤
+│ embedding (Embedding)           │ (None, 150, 64)        │       320,000 │
+├─────────────────────────────────┼────────────────────────┼───────────────┤
+│ spatial_dropout1d               │ (None, 150, 64)        │             0 │
+│ (SpatialDropout1D)              │                        │               │
+├─────────────────────────────────┼────────────────────────┼───────────────┤
+│ bidirectional (Bidirectional)   │ (None, 64)             │        18,816 │
+├─────────────────────────────────┼────────────────────────┼───────────────┤
+│ dense (Dense)                   │ (None, 32)             │         2,080 │
+├─────────────────────────────────┼────────────────────────┼───────────────┤
+│ dropout (Dropout)               │ (None, 32)             │             0 │
+├─────────────────────────────────┼────────────────────────┼───────────────┤
+│ dense_1 (Dense)                 │ (None, 3)              │            99 │
+└─────────────────────────────────┴────────────────────────┴───────────────┘
+ Total params: 340,995 (1.30 MB)
+ Trainable params: 340,995 (1.30 MB)
+ Non-trainable params: 0 (0.00 B)
+
+5. 开始训练...
+Epoch 1/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 121s 47ms/step - accuracy: 0.6254 - loss: 0.9218 - val_accuracy: 0.6746 - val_loss: 0.7656
+Epoch 2/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 121s 48ms/step - accuracy: 0.6818 - loss: 0.7956 - val_accuracy: 0.6769 - val_loss: 0.6960
+Epoch 3/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 103s 41ms/step - accuracy: 0.6951 - loss: 0.7516 - val_accuracy: 0.6960 - val_loss: 0.6500
+Epoch 4/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 84s 33ms/step - accuracy: 0.7076 - loss: 0.7189 - val_accuracy: 0.7256 - val_loss: 0.6035
+Epoch 5/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 85s 34ms/step - accuracy: 0.7120 - loss: 0.6958 - val_accuracy: 0.7305 - val_loss: 0.6019
+Epoch 6/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 99s 39ms/step - accuracy: 0.7198 - loss: 0.6776 - val_accuracy: 0.7397 - val_loss: 0.5977
+Epoch 7/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 97s 39ms/step - accuracy: 0.7261 - loss: 0.6640 - val_accuracy: 0.7272 - val_loss: 0.5956
+Epoch 8/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 109s 43ms/step - accuracy: 0.7312 - loss: 0.6522 - val_accuracy: 0.7631 - val_loss: 0.5401
+Epoch 9/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 118s 47ms/step - accuracy: 0.7341 - loss: 0.6384 - val_accuracy: 0.7568 - val_loss: 0.5481
+Epoch 10/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 116s 46ms/step - accuracy: 0.7362 - loss: 0.6307 - val_accuracy: 0.7573 - val_loss: 0.5437
+Epoch 11/15
+2521/2521 ━━━━━━━━━━━━━━━━━━━━ 101s 40ms/step - accuracy: 0.7400 - loss: 0.6205 - val_accuracy: 0.7601 - val_loss: 0.5483
+
+6. 生成评估图表...
+1681/1681 ━━━━━━━━━━━━━━━━━━━━ 11s 6ms/step
+Keras 任务完成！所有图表已保存至: results_task2_keras_final
